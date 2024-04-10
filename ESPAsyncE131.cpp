@@ -21,7 +21,7 @@
 #include <string.h>
 
 // E1.17 ACN Packet Identifier
-const byte ESPAsyncE131::ACN_ID[12] = { 0x41, 0x53, 0x43, 0x2d, 0x45, 0x31, 0x2e, 0x31, 0x37, 0x00, 0x00, 0x00 };
+const uint8_t ESPAsyncE131::ACN_ID[12] = { 0x41, 0x53, 0x43, 0x2d, 0x45, 0x31, 0x2e, 0x31, 0x37, 0x00, 0x00, 0x00 };
 
 // Constructor
 ESPAsyncE131::ESPAsyncE131(uint8_t buffers) {
@@ -83,19 +83,21 @@ bool ESPAsyncE131::initMulticast(uint16_t universe, uint8_t n) {
     bool success = false;
     delay(100);
 
-    IPAddress address = IPAddress(239, 255, ((universe >> 8) & 0xff),
-        ((universe >> 0) & 0xff));
+    ip_addr_t address;
+    IP4_ADDR(&address.u_addr.ip4, 239, 255, ((universe >> 8) & 0xff), ((universe >> 0) & 0xff));
+    address.type = IPADDR_TYPE_V4;
 
-    if (udp.listenMulticast(address, E131_ListenPort)) {
-        ip4_addr_t ifaddr;
-        ip4_addr_t multicast_addr;
+    if (udp.listenMulticast(&address, E131_ListenPort)) {
+        tcpip_adapter_ip_info_t ipinfo;
+        // ip4_addr_t ifaddr;
+        ip4_addr_t multicast_addr = {
+            .addr = 0 };
 
-        ifaddr.addr = static_cast<uint32_t>(WiFi.localIP());
+        // ifaddr.addr = static_cast<uint32_t>(WiFi.localIP());
+        tcpip_adapter_get_ip_info(TCPIP_ADAPTER_IF_ETH, &ipinfo);
         for (uint8_t i = 1; i < n; i++) {
-            multicast_addr.addr = static_cast<uint32_t>(IPAddress(239, 255,
-                    (((universe + i) >> 8) & 0xff), (((universe + i) >> 0)
-                    & 0xff)));
-            igmp_joingroup(&ifaddr, &multicast_addr);
+            IP4_ADDR(&multicast_addr, 239, 255, (((universe + i) >> 8) & 0xff), (((universe + i) >> 0) & 0xff));
+            igmp_joingroup(&ipinfo.ip, &multicast_addr);
         }
 
         udp.onPacket(std::bind(&ESPAsyncE131::parsePacket, this,
@@ -129,8 +131,9 @@ void ESPAsyncE131::parsePacket(AsyncUDPPacket _packet) {
 
 
     if (!error) {
-        if (PacketCallback) { (*PacketCallback) (sbuff, UserInfo); }
-        if (pbuff) { pbuff->add (pbuff, sbuff); }
+        bool handled = false;
+        if (PacketCallback) { handled = (*PacketCallback) (sbuff, UserInfo); }
+        if (!handled && pbuff) { pbuff->add (pbuff, sbuff); }
 
         stats.num_packets++;
         stats.last_clientIP = _packet.remoteIP();
@@ -139,7 +142,6 @@ void ESPAsyncE131::parsePacket(AsyncUDPPacket _packet) {
     } else if (error == ERROR_IGNORE) {
         // Do nothing
     } else {
-        if (Serial)
             dumpError(error);
         stats.packet_errors++;
     }
@@ -154,25 +156,22 @@ void ESPAsyncE131::parsePacket(AsyncUDPPacket _packet) {
 void ESPAsyncE131::dumpError(e131_error_t error) {
     switch (error) {
         case ERROR_ACN_ID:
-            Serial.print(F("INVALID PACKET ID: "));
+            printf("INVALID PACKET ID: ");
             for (uint i = 0; i < sizeof(ACN_ID); i++)
-                Serial.print(sbuff->acn_id[i], HEX);
-            Serial.println("");
+                printf("%02x", sbuff->acn_id[i]);
+            printf("\n");
             break;
         case ERROR_PACKET_SIZE:
-            Serial.println(F("INVALID PACKET SIZE: "));
+            printf("INVALID PACKET SIZE: \n");
             break;
         case ERROR_VECTOR_ROOT:
-            Serial.print(F("INVALID ROOT VECTOR: 0x"));
-            Serial.println(htonl(sbuff->root_vector), HEX);
+            printf("INVALID ROOT VECTOR: 0x%02x\n", htonl(sbuff->root_vector));
             break;
         case ERROR_VECTOR_FRAME:
-            Serial.print(F("INVALID FRAME VECTOR: 0x"));
-            Serial.println(htonl(sbuff->frame_vector), HEX);
+            printf("INVALID FRAME VECTOR: 0x%02x\n", htonl(sbuff->frame_vector));
             break;
         case ERROR_VECTOR_DMP:
-            Serial.print(F("INVALID DMP VECTOR: 0x"));
-            Serial.println(sbuff->dmp_vector, HEX);
+            printf("INVALID DMP VECTOR: 0x%02x\n", sbuff->dmp_vector);
         case ERROR_NONE:
             break;
         case ERROR_IGNORE:

@@ -21,7 +21,6 @@
 #define ESPASYNCE131_H_
 
 #ifdef ESP32
-#include <WiFi.h>
 #include <AsyncUDP.h>
 #elif defined (ESP8266)
 #include <ESPAsyncUDP.h>
@@ -33,7 +32,12 @@
 
 #include <lwip/ip_addr.h>
 #include <lwip/igmp.h>
+#ifdef ARDUINO
 #include <Arduino.h>
+#else
+#include <FastLED.h>
+#endif
+
 #include "RingBuf.h"
 
 #if LWIP_VERSION_MAJOR == 1
@@ -123,7 +127,7 @@ typedef enum {
 typedef struct {
     uint32_t    num_packets;
     uint32_t    packet_errors;
-    IPAddress   last_clientIP;
+    ip_addr_t   last_clientIP;
     uint16_t    last_clientPort;
     unsigned long    last_seen;
 } e131_stats_t;
@@ -150,7 +154,7 @@ class ESPAsyncE131 {
     // Packet parser callback
     void parsePacket(AsyncUDPPacket _packet);
 
-    void (*PacketCallback)(e131_packet_t* ReceivedData, void* UserInfo) = nullptr;
+    bool (*PacketCallback)(e131_packet_t* ReceivedData, void* UserInfo) = nullptr;
     ESPAsyncE131PortId E131_ListenPort = E131_DEFAULT_PORT;
 
  public:
@@ -166,7 +170,7 @@ class ESPAsyncE131 {
     inline void *pull(e131_packet_t *packet) { return pbuff->pull(pbuff, packet); }
 
     // Callback support
-    void registerCallback(void* _UserInfo, void (*cbFunction)(e131_packet_t*, void*)) { PacketCallback = cbFunction; UserInfo = _UserInfo; }
+    void registerCallback(void* _UserInfo, bool (*cbFunction)(e131_packet_t*, void*)) { PacketCallback = cbFunction; UserInfo = _UserInfo; }
 
     // Diag functions
     void dumpError(e131_error_t error);
